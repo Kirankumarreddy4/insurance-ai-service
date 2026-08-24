@@ -6,17 +6,6 @@ import os
 
 app = Flask(__name__)
 
-ROBOFLOW_API_KEY = "JiqpDWi01hEYtnMMa9bW"
-
-MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
-
-
-@app.route("/")
-def home():
-    return "Vehicle Damage Detection API Running"
-
-app = Flask(__name__)
-
 ROBOFLOW_API_KEY = "YOUR_API_KEY"
 
 MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
