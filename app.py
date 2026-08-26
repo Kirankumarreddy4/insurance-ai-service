@@ -5,6 +5,8 @@ import tempfile
 import os
 import cv2
 import numpy as np
+   import traceback
+
 
 app = Flask(__name__)
 
@@ -71,11 +73,19 @@ def detect():
                     files={
                         "file": img
                     }
+                    timeout=60
                 )
 
         os.remove(temp.name)
 
-        result = response.json()
+       if response.status_code != 200:
+    return jsonify({
+        "success": False,
+        "roboflowStatus": response.status_code,
+        "response": response.text
+    }), response.status_code
+
+result = response.json()
 
         ##################################################
         # Draw Bounding Boxes
@@ -125,13 +135,30 @@ def detect():
         # Convert annotated image to Base64
         ##################################################
 
-        _, buffer = cv2.imencode(".jpg", image)
+      encode_param = [
+    int(cv2.IMWRITE_JPEG_QUALITY),
+    65
+]
+
+_, buffer = cv2.imencode(
+    ".jpg",
+    image,
+    encode_param
+)
 
         annotated_base64 = base64.b64encode(buffer).decode("utf-8")
 
         ##################################################
         # Return everything
         ##################################################
+
+image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+
+if image is None:
+    return jsonify({
+        "success": False,
+        "message": "Unable to decode image"
+    }), 400
 
         return jsonify({
 
@@ -151,12 +178,14 @@ def detect():
 
         })
 
-    except Exception as e:
+except Exception as e:
 
-        return jsonify({
-            "success": False,
-            "message": str(e)
-        }), 500
+    traceback.print_exc()
+
+    return jsonify({
+        "success": False,
+        "message": str(e)
+    }), 500
 
 
 if __name__ == "__main__":
