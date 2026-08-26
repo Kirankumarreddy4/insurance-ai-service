@@ -9,7 +9,7 @@ import traceback
 
 app = Flask(__name__)
 
-ROBOFLOW_API_KEY = "YOUR_ROBOFLOW_API_KEY"
+ROBOFLOW_API_KEY = "JiqpDWi01hEYtnMMa9bW"
 
 MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
 
