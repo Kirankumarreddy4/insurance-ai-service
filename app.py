@@ -5,12 +5,11 @@ import tempfile
 import os
 import cv2
 import numpy as np
-   import traceback
-
+import traceback
 
 app = Flask(__name__)
 
-ROBOFLOW_API_KEY = "JiqpDWi01hEYtnMMa9bW"
+ROBOFLOW_API_KEY = "YOUR_ROBOFLOW_API_KEY"
 
 MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
 
@@ -23,7 +22,13 @@ def home():
 @app.route("/detect", methods=["POST"])
 def detect():
 
+    temp_path = None
+
     try:
+
+        ##################################################
+        # Read JSON
+        ##################################################
 
         data = request.get_json()
 
@@ -49,13 +54,23 @@ def detect():
 
         image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
 
+        if image is None:
+            return jsonify({
+                "success": False,
+                "message": "Unable to decode image"
+            }), 400
+
+        ##################################################
+        # File extension
+        ##################################################
+
         suffix = ".jpg"
 
         if "fileName" in data:
             _, suffix = os.path.splitext(data["fileName"])
 
         ##################################################
-        # Save temp image for Roboflow
+        # Save temp image
         ##################################################
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
@@ -63,29 +78,45 @@ def detect():
             temp.write(image_bytes)
             temp.flush()
 
-            with open(temp.name, "rb") as img:
+            temp_path = temp.name
 
-                response = requests.post(
-                    MODEL_URL,
-                    params={
-                        "api_key": ROBOFLOW_API_KEY
-                    },
-                    files={
-                        "file": img
-                    }
-                    timeout=60
-                )
+        ##################################################
+        # Call Roboflow
+        ##################################################
 
-        os.remove(temp.name)
+        with open(temp_path, "rb") as img:
 
-       if response.status_code != 200:
-    return jsonify({
-        "success": False,
-        "roboflowStatus": response.status_code,
-        "response": response.text
-    }), response.status_code
+            response = requests.post(
+                MODEL_URL,
+                params={
+                    "api_key": ROBOFLOW_API_KEY
+                },
+                files={
+                    "file": img
+                },
+                timeout=60
+            )
 
-result = response.json()
+        ##################################################
+        # Delete temp file
+        ##################################################
+
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        ##################################################
+        # Validate Roboflow response
+        ##################################################
+
+        if response.status_code != 200:
+
+            return jsonify({
+                "success": False,
+                "roboflowStatus": response.status_code,
+                "response": response.text
+            }), response.status_code
+
+        result = response.json()
 
         ##################################################
         # Draw Bounding Boxes
@@ -109,12 +140,12 @@ result = response.json()
             x2 = int(x + w / 2)
             y2 = int(y + h / 2)
 
-            color = (0,255,0)
+            color = (0, 255, 0)
 
             cv2.rectangle(
                 image,
-                (x1,y1),
-                (x2,y2),
+                (x1, y1),
+                (x2, y2),
                 color,
                 3
             )
@@ -124,7 +155,7 @@ result = response.json()
             cv2.putText(
                 image,
                 label,
-                (x1,max(30,y1-10)),
+                (x1, max(30, y1 - 10)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 color,
@@ -132,33 +163,31 @@ result = response.json()
             )
 
         ##################################################
-        # Convert annotated image to Base64
+        # Compress image
         ##################################################
 
-      encode_param = [
-    int(cv2.IMWRITE_JPEG_QUALITY),
-    65
-]
+        encode_param = [
+            int(cv2.IMWRITE_JPEG_QUALITY),
+            65
+        ]
 
-_, buffer = cv2.imencode(
-    ".jpg",
-    image,
-    encode_param
-)
+        success, buffer = cv2.imencode(
+            ".jpg",
+            image,
+            encode_param
+        )
+
+        if not success:
+            return jsonify({
+                "success": False,
+                "message": "Unable to encode annotated image"
+            }), 500
 
         annotated_base64 = base64.b64encode(buffer).decode("utf-8")
 
         ##################################################
-        # Return everything
+        # Return response
         ##################################################
-
-image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
-
-if image is None:
-    return jsonify({
-        "success": False,
-        "message": "Unable to decode image"
-    }), 400
 
         return jsonify({
 
@@ -178,18 +207,24 @@ if image is None:
 
         })
 
-except Exception as e:
+    except Exception as e:
 
-    traceback.print_exc()
+        traceback.print_exc()
 
-    return jsonify({
-        "success": False,
-        "message": str(e)
-    }), 500
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT",5000))
+    port = int(os.environ.get("PORT", 5000))
 
-    app.run(host="0.0.0.0", port=port)
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
