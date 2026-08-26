@@ -103,6 +103,7 @@ def detect():
 
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+            temp_path = None
 
         ##################################################
         # Validate Roboflow response
@@ -119,10 +120,36 @@ def detect():
         result = response.json()
 
         ##################################################
-        # Draw Bounding Boxes
+        # Get Predictions
         ##################################################
 
         predictions = result.get("predictions", [])
+
+        ##################################################
+        # No damages detected
+        ##################################################
+
+        if len(predictions) == 0:
+
+            return jsonify({
+
+                "success": True,
+
+                "predictionCount": 0,
+
+                "predictions": [],
+
+                "image": result.get("image"),
+
+                "inference_id": result.get("inference_id"),
+
+                "time": result.get("time")
+
+            })
+
+        ##################################################
+        # Draw Bounding Boxes
+        ##################################################
 
         for pred in predictions:
 
@@ -163,7 +190,7 @@ def detect():
             )
 
         ##################################################
-        # Compress image
+        # Compress annotated image
         ##################################################
 
         encode_param = [
@@ -178,6 +205,7 @@ def detect():
         )
 
         if not success:
+
             return jsonify({
                 "success": False,
                 "message": "Unable to encode annotated image"
