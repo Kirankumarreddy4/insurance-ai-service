@@ -13,7 +13,7 @@ import re
 from google.genai import types
 import time
 
-GEMINI_API_KEY = "AQ.Ab8RN6Jh0ibqvZ2n-Lh9iYiaTvWddSU9I0bW3LYSzFdoVDQC6Q"
+GEMINI_API_KEY = "AQ.Ab8RN6IYPGUtM4lAWfz3sbeSU-ue4INLUlATMtZbi57fSWl0OQ"
 ROBOFLOW_API_KEY = "JiqpDWi01hEYtnMMa9bW"
 MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
 
