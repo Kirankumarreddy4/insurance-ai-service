@@ -88,7 +88,7 @@ Return ONLY valid JSON in this format:
 """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.7-flash",
         contents=[
             prompt,
             types.Part.from_bytes(
