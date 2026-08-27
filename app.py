@@ -6,6 +6,7 @@ import os
 import cv2
 import numpy as np
 import traceback
+import hashlib
 
 app = Flask(__name__)
 
@@ -19,6 +20,26 @@ def home():
     return "Vehicle Damage Detection API Running"
 
 
+##################################################
+# Generate a unique color for each class
+##################################################
+
+def get_color(class_name):
+
+    digest = hashlib.md5(class_name.encode()).digest()
+
+    b = digest[0]
+    g = digest[1]
+    r = digest[2]
+
+    # Brighten the colors
+    b = max(80, b)
+    g = max(80, g)
+    r = max(80, r)
+
+    return (int(b), int(g), int(r))
+
+
 @app.route("/detect", methods=["POST"])
 def detect():
 
@@ -27,7 +48,7 @@ def detect():
     try:
 
         ##################################################
-        # Read JSON
+        # Read Request
         ##################################################
 
         data = request.get_json()
@@ -45,7 +66,7 @@ def detect():
             }), 400
 
         ##################################################
-        # Decode Base64 Image
+        # Decode Image
         ##################################################
 
         image_bytes = base64.b64decode(data["image"])
@@ -61,7 +82,7 @@ def detect():
             }), 400
 
         ##################################################
-        # File extension
+        # File Extension
         ##################################################
 
         suffix = ".jpg"
@@ -70,7 +91,7 @@ def detect():
             _, suffix = os.path.splitext(data["fileName"])
 
         ##################################################
-        # Save temp image
+        # Save Temp Image
         ##################################################
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
@@ -98,7 +119,7 @@ def detect():
             )
 
         ##################################################
-        # Delete temp file
+        # Delete Temp File
         ##################################################
 
         if temp_path and os.path.exists(temp_path):
@@ -106,7 +127,7 @@ def detect():
             temp_path = None
 
         ##################################################
-        # Validate Roboflow response
+        # Validate Response
         ##################################################
 
         if response.status_code != 200:
@@ -119,14 +140,10 @@ def detect():
 
         result = response.json()
 
-        ##################################################
-        # Get Predictions
-        ##################################################
-
         predictions = result.get("predictions", [])
 
         ##################################################
-        # No damages detected
+        # No Damages
         ##################################################
 
         if len(predictions) == 0:
@@ -167,7 +184,11 @@ def detect():
             x2 = int(x + w / 2)
             y2 = int(y + h / 2)
 
-            color = (0, 255, 0)
+            color = get_color(cls)
+
+            #########################################
+            # Bounding Box
+            #########################################
 
             cv2.rectangle(
                 image,
@@ -177,20 +198,41 @@ def detect():
                 3
             )
 
+            #########################################
+            # Label
+            #########################################
+
             label = f"{cls} ({conf:.2f})"
+
+            (text_width, text_height), baseline = cv2.getTextSize(
+                label,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                2
+            )
+
+            label_y = max(text_height + 8, y1 - 8)
+
+            cv2.rectangle(
+                image,
+                (x1, label_y - text_height - 8),
+                (x1 + text_width + 8, label_y + baseline),
+                color,
+                -1
+            )
 
             cv2.putText(
                 image,
                 label,
-                (x1, max(30, y1 - 10)),
+                (x1 + 4, label_y - 4),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
-                color,
+                (255, 255, 255),
                 2
             )
 
         ##################################################
-        # Compress annotated image
+        # Compress Image
         ##################################################
 
         encode_param = [
@@ -214,7 +256,7 @@ def detect():
         annotated_base64 = base64.b64encode(buffer).decode("utf-8")
 
         ##################################################
-        # Return response
+        # Response
         ##################################################
 
         return jsonify({
