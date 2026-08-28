@@ -38,6 +38,7 @@ def home():
 # --------------------------------------------------
 # Generate Unique Color for Each Class
 # --------------------------------------------------
+
 def get_color(class_name):
     digest = hashlib.md5(class_name.encode()).digest()
 
@@ -51,6 +52,7 @@ def get_color(class_name):
 # --------------------------------------------------
 # Gemini Damage Estimation
 # --------------------------------------------------
+
 def estimate_damage_with_gemini(
     annotated_base64,
     predictions,
@@ -156,6 +158,7 @@ Return ONLY valid JSON in this format:
 # --------------------------------------------------
 # Detect Endpoint
 # --------------------------------------------------
+
 @app.route("/detect", methods=["POST"])
 def detect():
     start = time.time()
@@ -196,7 +199,7 @@ def detect():
 
         image = cv2.imdecode(
             image_np,
-            cv2.IMREAD_COLOR
+            cv2.IMREAD_COLOR,
         )
 
         if image is None:
@@ -260,29 +263,14 @@ def detect():
 
         predictions = result.get("predictions", [])
 
-        predictions = [
-            p
-            for p in predictions
-            if p["confidence"] >= 0.35
-        ]
+        predictions = [p for p in predictions if p["confidence"] >= 0.35]
 
-        detected_parts = list(
-            {
-                p["class"]
-                for p in predictions
-            }
-        )
+        detected_parts = list({p["class"] for p in predictions})
 
         avg_confidence = 0
-
         if predictions:
             avg_confidence = round(
-                sum(
-                    p["confidence"]
-                    for p in predictions
-                )
-                / len(predictions),
-                2,
+                sum(p["confidence"] for p in predictions) / len(predictions), 2
             )
 
         # No damage found
@@ -315,27 +303,15 @@ def detect():
 
             color = get_color(cls)
 
-            cv2.rectangle(
-                image,
-                (x1, y1),
-                (x2, y2),
-                color,
-                3,
-            )
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
 
             label = f"{cls} ({conf:.2f})"
 
             (text_width, text_height), baseline = cv2.getTextSize(
-                label,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                2,
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
             )
 
-            label_y = max(
-                text_height + 8,
-                y1 - 8,
-            )
+            label_y = max(text_height + 8, y1 - 8)
 
             cv2.rectangle(
                 image,
@@ -356,23 +332,61 @@ def detect():
             )
 
         # Encode annotated image
-        encode_param = [
-            int(cv2.IMWRITE_JPEG_QUALITY),
-            65,
-        ]
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
 
-        success, buffer = cv2.imencode(
-            ".jpg",
-            image,
-            encode_param,
-        )
+        success, buffer = cv2.imencode(".jpg", image, encode_param)
 
         if not success:
             return (
-                jsonify(
-                    {
-                        "success": False,
-                        "message": "Unable to encode image",
-                    }
-                ),
-          
+                jsonify({"success": False, "message": "Unable to encode image"}),
+                500,
+            )
+
+        annotated_base64 = base64.b64encode(buffer).decode("utf-8")
+
+        # Call Gemini for damage estimation
+        gemini_result = None
+        try:
+            gemini_result = estimate_damage_with_gemini(
+                annotated_base64, predictions, vehicle, claim, original_base64
+            )
+        except Exception:
+            # Don't fail the entire request if Gemini fails; include error info
+            gemini_result = {
+                "error": "Gemini estimation failed",
+                "details": traceback.format_exc(),
+            }
+
+        elapsed = round(time.time() - start, 2)
+
+        return jsonify(
+            {
+                "success": True,
+                "predictionCount": len(predictions),
+                "predictions": predictions,
+                "detectedParts": detected_parts,
+                "avgConfidence": avg_confidence,
+                "annotatedImage": annotated_base64,
+                "gemini": gemini_result,
+                "inference_id": result.get("inference_id"),
+                "time": result.get("time"),
+                "elapsed": elapsed,
+            }
+        )
+
+    except Exception:
+        # Ensure temp cleanup on unexpected errors
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+        return (
+            jsonify({"success": False, "message": "Server error", "error": traceback.format_exc()}),
+            500,
+        )
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
