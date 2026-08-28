@@ -12,12 +12,16 @@ import json
 import re
 from google.genai import types
 import time
+from dotenv import load_dotenv
 
-GEMINI_API_KEY = "AQ.Ab8RN6Iaxe41VRiLPUKgsNyfA9lpCpZwlJPwMPvETFHGg5akDA"
-ROBOFLOW_API_KEY = "JiqpDWi01hEYtnMMa9bW"
-MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
+
 app = Flask(__name__)
 
 
