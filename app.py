@@ -24,7 +24,6 @@ ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL_URL = "https://detect.roboflow.com/car-damage-detection-5ioys-iapbr/1"
 
-
 app = Flask(__name__)
 
 
