@@ -154,6 +154,107 @@ Return ONLY valid JSON in this format:
 
     return json.loads(text)
 
+def add_ai_watermark(
+    image,
+    claim,
+    evidence_id,
+    vehicle,
+    gemini_result 
+):
+
+    overlay = image.copy()
+
+    h, w = image.shape[:2]
+
+    panel_height = 270
+
+    # Background panel
+    cv2.rectangle(
+        overlay,
+        (0, h - panel_height),
+        (w, h),
+        (20, 20, 20),
+        -1
+    )
+
+    cv2.addWeighted(
+        overlay,
+        0.72,
+        image,
+        0.28,
+        0,
+        image
+    )
+
+    # Border
+    cv2.rectangle(
+        image,
+        (10, h-panel_height+10),
+        (w-10, h-10),
+        (255,255,255),
+        2
+    )
+
+    severity = gemini_result.get("severity","Unknown")
+    costMin = gemini_result.get("estimatedCostMin",0)
+    costMax = gemini_result.get("estimatedCostMax",0)
+    confidence = gemini_result.get("confidence",0)
+
+    vehicleName = (
+        vehicle.get("make","")
+        + " "
+        + vehicle.get("model","")
+    ).strip()
+
+    lines = [
+
+        "AI DAMAGE ASSESSMENT",
+
+        f"Claim       : {claim.get('claimNumber','N/A')}",
+
+        f"Evidence    : {evidence_id}",
+
+        f"Date        : {time.strftime('%d-%b-%Y %H:%M IST')}",
+
+        f"Vehicle     : {vehicleName}",
+
+        f"Severity    : {severity.upper()}",
+
+        f"Estimated   : INR {costMin:,} - INR {costMax:,}",
+
+        f"Confidence  : {round(confidence*100)}%",
+
+        "Gemini 3.6 Flash + Roboflow v1",
+
+        "DO NOT EDIT • DIGITAL EVIDENCE"
+
+    ]
+
+    y = h - panel_height + 35
+
+    for i, line in enumerate(lines):
+
+        scale = 0.70
+        thickness = 2
+
+        if i == 0:
+            scale = 0.95
+            thickness = 3
+
+        cv2.putText(
+            image,
+            line,
+            (25, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            scale,
+            (255,255,255),
+            thickness
+        )
+
+        y += 24 if i else 38
+
+    return image
+
 
 # --------------------------------------------------
 # Detect Endpoint
@@ -330,26 +431,47 @@ def detect():
                 (255, 255, 255),
                 2,
             )
+            
 
-        # Encode annotated image
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
-
-        success, buffer = cv2.imencode(".jpg", image, encode_param)
-
-        if not success:
-            return (
-                jsonify({"success": False, "message": "Unable to encode image"}),
-                500,
-            )
-
-        annotated_base64 = base64.b64encode(buffer).decode("utf-8")
 
         # Call Gemini for damage estimation
         gemini_result = None
         try:
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+
+            success, buffer = cv2.imencode(".jpg", image, encode_param)
+            if not success:
+                return (
+                    jsonify({"success": False, "message": "Unable to encode image"}),
+                    500,
+                )
+            annotated_base64 = base64.b64encode(buffer).decode("utf-8")
             gemini_result = estimate_damage_with_gemini(
                 annotated_base64, predictions, vehicle, claim, original_base64
             )
+            evidence_id = claim.get(
+                        "evidenceNumber",
+                      claim.get("Id", "EV-00001")
+)
+            image = add_ai_watermark(
+                    image,
+                    claim,
+                    evidence_id,
+                    vehicle,
+                    gemini_result
+                )
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+            
+            success, buffer = cv2.imencode(".jpg", image, encode_param)
+            
+            if not success:
+                        return (
+                            jsonify({"success": False, "message": "Unable to encode image"}),
+                            500,
+                        )
+            
+            annotated_base64 = base64.b64encode(buffer).decode("utf-8")
+            
         except Exception:
             # Don't fail the entire request if Gemini fails; include error info
             gemini_result = {
