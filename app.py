@@ -446,9 +446,13 @@ def detect():
                     500,
                 )
             annotated_base64 = base64.b64encode(buffer).decode("utf-8")
+            print("Calling Gemini...")
+
             gemini_result = estimate_damage_with_gemini(
                 annotated_base64, predictions, vehicle, claim, original_base64
             )
+            print("Called Gemini...")
+
             evidence_id = claim.get(
                         "evidenceNumber",
                       claim.get("Id", "EV-00001")
