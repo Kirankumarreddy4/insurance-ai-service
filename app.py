@@ -60,52 +60,52 @@ def estimate_damage_with_gemini(
     claim,
     original_image_base64,
 ):
+    schema = {
+        "damageDetected": True,
+        "severity": "",
+        "estimatedCostMin": 0,
+        "estimatedCostMax": 0,
+        "currency": "INR",
+        "laborHours": 0,
+        "partsToReplace": [],
+        "partsToRepair": [],
+        "confidence": 0,
+        "recommendation": "",
+        "summary": ""
+    }
+
     prompt = f"""
-You are an experienced automobile insurance surveyor.
+    You are an experienced automobile insurance surveyor.
 
-Analyse the ORIGINAL vehicle image.
+    Analyse the ORIGINAL vehicle image.
 
-If Roboflow detections are available, use them as supporting evidence.
+    If Roboflow detections are available, use them as supporting evidence.
 
-If no detections are available, perform your own visual assessment from the image.
+    If no detections are available, perform your own visual assessment from the image.
 
-Vehicle
-{json.dumps(vehicle, indent=2)}
+    Vehicle
+    {json.dumps(vehicle, indent=2)}
 
-Claim
-{json.dumps(claim, indent=2)}
+    Claim
+    {json.dumps(claim, indent=2)}
 
-Roboflow detections
-{json.dumps(predictions, indent=2)}
+    Roboflow detections
+    {json.dumps(predictions, indent=2)}
 
-Instructions
+    Instructions
 
-- Carefully inspect the ORIGINAL vehicle image.
-- Roboflow detections are optional supporting evidence.
-- If Roboflow found damage, verify it before using it.
-- If Roboflow missed visible damage, identify the damage yourself.
-- If Roboflow produced false positives, ignore them.
-- Base the final assessment primarily on the image.
-- Estimate realistic repair costs.
-- If there is no visible damage, return damageDetected=false.
-- If image quality is poor, lower the confidence score.
+    - Carefully inspect the image.
+    - Do NOT rely only on Roboflow.
+    - If Roboflow missed visible damage, identify it yourself.
+    - If the image appears undamaged, clearly state that.
+    - Estimate realistic repair costs.
+    - Recommend repair or replacement where appropriate.
+    - If image quality is insufficient, reduce confidence.
 
-Return ONLY valid JSON.
+    Return ONLY valid JSON matching this schema:
 
-{{
-    "damageDetected": true,
-    "severity": "",
-    "estimatedCostMin": 0,
-    "estimatedCostMax": 0,
-    "currency": "INR",
-    "laborHours": 0,
-    "partsToReplace": [],
-    "partsToRepair": [],
-    "confidence": 0,
-    "recommendation": "",
-    "summary": ""
-}}
-"""
+    {json.dumps(schema, indent=4)}
+    """
 
     original_image_part = types.Part.from_bytes(
         data=base64.b64decode(original_image_base64),
