@@ -61,9 +61,13 @@ def estimate_damage_with_gemini(
     original_image_base64,
 ):
     prompt = f"""
-You are a senior automobile insurance surveyor.
+You are an experienced automobile insurance surveyor.
 
-Analyse BOTH the vehicle image and Roboflow detections.
+Analyse the ORIGINAL vehicle image.
+
+If Roboflow detections are available, use them as supporting evidence.
+
+If no detections are available, perform your own visual assessment from the image.
 
 Vehicle
 {json.dumps(vehicle, indent=2)}
@@ -71,19 +75,25 @@ Vehicle
 Claim
 {json.dumps(claim, indent=2)}
 
-Detected damages
+Roboflow detections
 {json.dumps(predictions, indent=2)}
 
-Instructions:
-- Use BOTH the image and detections.
-- Do not estimate based only on detections.
-- If multiple damages belong to same panel, estimate realistic repair.
-- If bumper is cracked, recommend replacement.
-- If dent is repairable, recommend repair.
+Instructions
 
-Return ONLY valid JSON in this format:
+- Carefully inspect the ORIGINAL vehicle image.
+- Roboflow detections are optional supporting evidence.
+- If Roboflow found damage, verify it before using it.
+- If Roboflow missed visible damage, identify the damage yourself.
+- If Roboflow produced false positives, ignore them.
+- Base the final assessment primarily on the image.
+- Estimate realistic repair costs.
+- If there is no visible damage, return damageDetected=false.
+- If image quality is poor, lower the confidence score.
 
-{{
+Return ONLY valid JSON.
+
+{
+    "damageDetected": true,
     "severity": "",
     "estimatedCostMin": 0,
     "estimatedCostMax": 0,
@@ -94,7 +104,7 @@ Return ONLY valid JSON in this format:
     "confidence": 0,
     "recommendation": "",
     "summary": ""
-}}
+}
 """
 
     original_image_part = types.Part.from_bytes(
@@ -119,13 +129,16 @@ Return ONLY valid JSON in this format:
     for model_name in models:
         for attempt in range(3):
             try:
+                contents = [
+                    prompt,
+                    original_image_part
+                ]
+
+                if predictions:
+                    contents.append(annotated_image_part)
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=[
-                        prompt,
-                        original_image_part,
-                        annotated_image_part,
-                    ],
+                    contents=contents
                 )
 
                 print(f"Success with model: {model_name}")
@@ -374,21 +387,10 @@ def detect():
                 sum(p["confidence"] for p in predictions) / len(predictions), 2
             )
 
-        # No damage found
-        if not predictions:
-            return jsonify(
-                {
-                    "success": True,
-                    "predictionCount": 0,
-                    "predictions": [],
-                    "image": result.get("image"),
-                    "inference_id": result.get("inference_id"),
-                    "time": result.get("time"),
-                }
-            )
-
-        # Draw detections
-        for pred in predictions:
+        # Draw detections only if Roboflow found something
+        if predictions:
+        
+          for pred in predictions:
             x = pred["x"]
             y = pred["y"]
             w = pred["width"]
@@ -437,7 +439,7 @@ def detect():
         # Call Gemini for damage estimation
         gemini_result = None
         try:
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
 
             success, buffer = cv2.imencode(".jpg", image, encode_param)
             if not success:
@@ -464,7 +466,7 @@ def detect():
                     vehicle,
                     gemini_result
                 )
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
             
             success, buffer = cv2.imencode(".jpg", image, encode_param)
             
