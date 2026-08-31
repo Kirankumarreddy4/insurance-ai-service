@@ -92,7 +92,7 @@ Instructions
 
 Return ONLY valid JSON.
 
-{
+{{
     "damageDetected": true,
     "severity": "",
     "estimatedCostMin": 0,
@@ -104,7 +104,7 @@ Return ONLY valid JSON.
     "confidence": 0,
     "recommendation": "",
     "summary": ""
-}
+}}
 """
 
     original_image_part = types.Part.from_bytes(
