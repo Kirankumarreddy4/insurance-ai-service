@@ -118,6 +118,8 @@ def estimate_damage_with_gemini(
     )
 
     models = [
+         "gemini-2.5-flash",
+         "gemini-2.5-pro",
         "gemini-3.6-flash",
         "gemini-3.6-flash-lite",
         "gemini-3.6-pro",
@@ -146,10 +148,13 @@ def estimate_damage_with_gemini(
 
             except Exception as ex:
                 last_error = ex
-                print(
-                    f"Model {model_name} "
-                    f"Attempt {attempt + 1} failed: {ex}"
-                )
+
+                # Skip invalid model immediately
+                if "404" in str(ex) or "NOT_FOUND" in str(ex):
+                    print(f"{model_name} doesn't exist. Trying next model.")
+                    break
+
+                print(f"{model_name} attempt {attempt+1} failed")
                 time.sleep(5)
 
         if response:
