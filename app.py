@@ -121,18 +121,17 @@ def estimate_damage_with_gemini(
     )
 
     models = [
-         "gemini-2.5-flash",
-         "gemini-2.5-pro",
-        "gemini-3.6-flash",
-        "gemini-3.6-flash-lite",
-        "gemini-3.6-pro",
-    ]
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-flash-latest",
+    "gemini-pro-latest"
+     ]
 
     response = None
     last_error = None
 
     for model_name in models:
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 contents = [
                     prompt,
@@ -143,7 +142,11 @@ def estimate_damage_with_gemini(
                     contents.append(annotated_image_part)
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=contents
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        temperature=0.2,
+                        max_output_tokens=1024
+                    )
                 )
 
                 print(f"Success with model: {model_name}")
@@ -152,13 +155,14 @@ def estimate_damage_with_gemini(
             except Exception as ex:
                 last_error = ex
 
-                # Skip invalid model immediately
-                if "404" in str(ex) or "NOT_FOUND" in str(ex):
-                    print(f"{model_name} doesn't exist. Trying next model.")
-                    break
+                print("="*80)
+                print("Gemini Error")
+                print(type(ex))
+                print(ex)
+                print("="*80)
 
                 print(f"{model_name} attempt {attempt+1} failed")
-                time.sleep(5)
+                time.sleep(10)
 
         if response:
             break
