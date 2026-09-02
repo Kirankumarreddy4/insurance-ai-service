@@ -465,6 +465,7 @@ def detect():
             gemini_result = estimate_damage_with_gemini(
                 annotated_base64, predictions, vehicle, claim, original_base64
             )
+            gemini_result["success"] = True
             print("Called Gemini...")
 
             evidence_id = claim.get(
@@ -490,10 +491,12 @@ def detect():
             
             annotated_base64 = base64.b64encode(buffer).decode("utf-8")
             
-        except Exception:
+        except Exception as ex:
             # Don't fail the entire request if Gemini fails; include error info
             gemini_result = {
+                 "success": False,
                 "error": "Gemini estimation failed",
+                "message": str(ex),
                 "details": traceback.format_exc(),
             }
 
