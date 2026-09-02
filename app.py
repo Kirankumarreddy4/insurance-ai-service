@@ -179,26 +179,356 @@ def estimate_damage_with_gemini(
 
     return json.loads(text)
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+
 def add_ai_watermark(
     image,
     claim,
     evidence_id,
     vehicle,
-    gemini_result 
+    predictions,
+    gemini_result
 ):
+    """
+    Adds a compact AI assessment watermark.
 
-    overlay = image.copy()
+    The watermark automatically selects the corner
+    with the least overlap with detected damage boxes.
+    """
 
     h, w = image.shape[:2]
 
-    panel_height = 270
+    # --------------------------------------------------
+    # Read Gemini values safely
+    # --------------------------------------------------
 
-    # Background panel
+    severity = str(
+        gemini_result.get("severity", "Unknown")
+    ).upper()
+
+    cost_min = gemini_result.get(
+        "estimatedCostMin", 0
+    )
+
+    cost_max = gemini_result.get(
+        "estimatedCostMax", 0
+    )
+
+    confidence = gemini_result.get(
+        "confidence", 0
+    )
+
+    # Handle confidence returned as either:
+    # 0.92 or 92
+    try:
+        confidence = float(confidence)
+
+        if confidence <= 1:
+            confidence_percent = round(
+                confidence * 100
+            )
+        else:
+            confidence_percent = round(confidence)
+
+    except (TypeError, ValueError):
+        confidence_percent = 0
+
+    # --------------------------------------------------
+    # Vehicle name
+    # --------------------------------------------------
+
+    vehicle_name = (
+        f"{vehicle.get('make', '')} "
+        f"{vehicle.get('model', '')}"
+    ).strip()
+
+    if not vehicle_name:
+        vehicle_name = "Unknown Vehicle"
+
+    # --------------------------------------------------
+    # Claim number
+    # --------------------------------------------------
+
+    claim_number = claim.get(
+        "claimNumber",
+        claim.get("claim_number", "N/A")
+    )
+
+    # --------------------------------------------------
+    # IST timestamp
+    # --------------------------------------------------
+
+    ist_now = datetime.now(
+        ZoneInfo("Asia/Kolkata")
+    )
+
+    timestamp = ist_now.strftime(
+        "%d-%b-%Y %H:%M IST"
+    )
+
+    # --------------------------------------------------
+    # Format estimated cost
+    # --------------------------------------------------
+
+    try:
+        cost_min = float(cost_min)
+        cost_max = float(cost_max)
+
+        estimated_text = (
+            f"INR {cost_min:,.0f} - "
+            f"INR {cost_max:,.0f}"
+        )
+
+    except (TypeError, ValueError):
+
+        estimated_text = "INR 0 - INR 0"
+
+    # --------------------------------------------------
+    # Watermark text
+    # --------------------------------------------------
+
+    lines = [
+        "AI DAMAGE ASSESSMENT",
+        f"Claim      : {claim_number}",
+        f"Evidence   : {evidence_id}",
+        f"Date       : {timestamp}",
+        f"Vehicle    : {vehicle_name}",
+        f"Severity   : {severity}",
+        f"Estimated  : {estimated_text}",
+        f"Confidence : {confidence_percent}%",
+        "Gemini 3.6 Flash + Roboflow v1",
+        "DO NOT EDIT | DIGITAL EVIDENCE"
+    ]
+
+    # --------------------------------------------------
+    # Panel sizing
+    # --------------------------------------------------
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    title_scale = 0.62
+    text_scale = 0.43
+
+    title_thickness = 2
+    text_thickness = 1
+
+    padding_x = 14
+    padding_y = 12
+
+    line_gap = 8
+
+    # Calculate required width
+    max_text_width = 0
+
+    for i, line in enumerate(lines):
+
+        scale = (
+            title_scale
+            if i == 0
+            else text_scale
+        )
+
+        thickness = (
+            title_thickness
+            if i == 0
+            else text_thickness
+        )
+
+        (text_width, text_height), _ = cv2.getTextSize(
+            line,
+            font,
+            scale,
+            thickness
+        )
+
+        max_text_width = max(
+            max_text_width,
+            text_width
+        )
+
+    panel_width = max_text_width + (
+        padding_x * 2
+    )
+
+    panel_height = 0
+
+    line_heights = []
+
+    for i, line in enumerate(lines):
+
+        scale = (
+            title_scale
+            if i == 0
+            else text_scale
+        )
+
+        thickness = (
+            title_thickness
+            if i == 0
+            else text_thickness
+        )
+
+        (_, text_height), _ = cv2.getTextSize(
+            line,
+            font,
+            scale,
+            thickness
+        )
+
+        line_heights.append(text_height)
+
+        panel_height += text_height
+
+        if i < len(lines) - 1:
+            panel_height += line_gap
+
+    panel_height += padding_y * 2
+
+    # --------------------------------------------------
+    # Keep panel inside image
+    # --------------------------------------------------
+
+    max_panel_width = int(w * 0.45)
+    max_panel_height = int(h * 0.55)
+
+    panel_width = min(
+        panel_width,
+        max_panel_width
+    )
+
+    panel_height = min(
+        panel_height,
+        max_panel_height
+    )
+
+    # --------------------------------------------------
+    # Candidate corners
+    # --------------------------------------------------
+
+    margin = 15
+
+    candidates = {
+        "top_left": (
+            margin,
+            margin,
+            margin + panel_width,
+            margin + panel_height
+        ),
+
+        "top_right": (
+            w - margin - panel_width,
+            margin,
+            w - margin,
+            margin + panel_height
+        ),
+
+        "bottom_left": (
+            margin,
+            h - margin - panel_height,
+            margin + panel_width,
+            h - margin
+        ),
+
+        "bottom_right": (
+            w - margin - panel_width,
+            h - margin - panel_height,
+            w - margin,
+            h - margin
+        )
+    }
+
+    # --------------------------------------------------
+    # Calculate overlap between a panel
+    # and Roboflow bounding boxes
+    # --------------------------------------------------
+
+    def intersection_area(box_a, box_b):
+
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+
+        ix1 = max(ax1, bx1)
+        iy1 = max(ay1, by1)
+
+        ix2 = min(ax2, bx2)
+        iy2 = min(ay2, by2)
+
+        if ix2 <= ix1 or iy2 <= iy1:
+            return 0
+
+        return (
+            (ix2 - ix1) *
+            (iy2 - iy1)
+        )
+
+    # --------------------------------------------------
+    # Score each corner
+    # Lower score = better
+    # --------------------------------------------------
+
+    corner_scores = {}
+
+    for name, panel in candidates.items():
+
+        score = 0
+
+        for pred in predictions:
+
+            try:
+
+                x = float(pred["x"])
+                y = float(pred["y"])
+                pw = float(pred["width"])
+                ph = float(pred["height"])
+
+                x1 = int(x - pw / 2)
+                y1 = int(y - ph / 2)
+                x2 = int(x + pw / 2)
+                y2 = int(y + ph / 2)
+
+                damage_box = (
+                    x1,
+                    y1,
+                    x2,
+                    y2
+                )
+
+                score += intersection_area(
+                    panel,
+                    damage_box
+                )
+
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        corner_scores[name] = score
+
+    # --------------------------------------------------
+    # Select safest corner
+    # --------------------------------------------------
+
+    selected_corner = min(
+        corner_scores,
+        key=corner_scores.get
+    )
+
+    x1, y1, x2, y2 = candidates[
+        selected_corner
+    ]
+
+    # --------------------------------------------------
+    # Draw semi-transparent background
+    # --------------------------------------------------
+
+    overlay = image.copy()
+
     cv2.rectangle(
         overlay,
-        (0, h - panel_height),
-        (w, h),
-        (20, 20, 20),
+        (x1, y1),
+        (x2, y2),
+        (15, 15, 15),
         -1
     )
 
@@ -211,75 +541,59 @@ def add_ai_watermark(
         image
     )
 
-    # Border
+    # --------------------------------------------------
+    # Draw border
+    # --------------------------------------------------
+
     cv2.rectangle(
         image,
-        (10, h-panel_height+10),
-        (w-10, h-10),
-        (255,255,255),
-        2
+        (x1, y1),
+        (x2, y2),
+        (255, 255, 255),
+        1
     )
 
-    severity = gemini_result.get("severity","Unknown")
-    costMin = gemini_result.get("estimatedCostMin",0)
-    costMax = gemini_result.get("estimatedCostMax",0)
-    confidence = gemini_result.get("confidence",0)
+    # --------------------------------------------------
+    # Draw text
+    # --------------------------------------------------
 
-    vehicleName = (
-        vehicle.get("make","")
-        + " "
-        + vehicle.get("model","")
-    ).strip()
-
-    lines = [
-
-        "AI DAMAGE ASSESSMENT",
-
-        f"Claim       : {claim.get('claimNumber','N/A')}",
-
-        f"Evidence    : {evidence_id}",
-
-        f"Date        : {time.strftime('%d-%b-%Y %H:%M IST')}",
-
-        f"Vehicle     : {vehicleName}",
-
-        f"Severity    : {severity.upper()}",
-
-        f"Estimated   : INR {costMin:,} - INR {costMax:,}",
-
-        f"Confidence  : {round(confidence*100)}%",
-
-        "Gemini 3.6 Flash + Roboflow v1",
-
-        "DO NOT EDIT • DIGITAL EVIDENCE"
-
-    ]
-
-    y = h - panel_height + 35
+    current_y = y1 + padding_y
 
     for i, line in enumerate(lines):
 
-        scale = 0.70
-        thickness = 2
+        scale = (
+            title_scale
+            if i == 0
+            else text_scale
+        )
 
-        if i == 0:
-            scale = 0.95
-            thickness = 3
+        thickness = (
+            title_thickness
+            if i == 0
+            else text_thickness
+        )
+
+        text_height = line_heights[i]
+
+        current_y += text_height
 
         cv2.putText(
             image,
             line,
-            (25, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
+            (
+                x1 + padding_x,
+                current_y
+            ),
+            font,
             scale,
-            (255,255,255),
-            thickness
+            (255, 255, 255),
+            thickness,
+            cv2.LINE_AA
         )
 
-        y += 24 if i else 38
+        current_y += line_gap
 
     return image
-
 
 # --------------------------------------------------
 # Detect Endpoint
@@ -477,6 +791,7 @@ def detect():
                     claim,
                     evidence_id,
                     vehicle,
+                    predictions,
                     gemini_result
                 )
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
