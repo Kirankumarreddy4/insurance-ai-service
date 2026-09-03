@@ -182,26 +182,21 @@ def estimate_damage_with_gemini(
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-
 def add_ai_watermark(
     image,
     claim,
     evidence_id,
     vehicle,
-    predictions,
     gemini_result
 ):
     """
-    Adds a compact AI assessment watermark.
+    Adds a dedicated AI assessment footer BELOW the original image.
 
-    The watermark automatically selects the corner
-    with the least overlap with detected damage boxes.
+    The original image is not covered by the watermark.
     """
 
-    h, w = image.shape[:2]
-
     # --------------------------------------------------
-    # Read Gemini values safely
+    # Read Gemini values
     # --------------------------------------------------
 
     severity = str(
@@ -220,15 +215,11 @@ def add_ai_watermark(
         "confidence", 0
     )
 
-    # Handle confidence returned as either:
-    # 0.92 or 92
     try:
         confidence = float(confidence)
 
         if confidence <= 1:
-            confidence_percent = round(
-                confidence * 100
-            )
+            confidence_percent = round(confidence * 100)
         else:
             confidence_percent = round(confidence)
 
@@ -236,7 +227,7 @@ def add_ai_watermark(
         confidence_percent = 0
 
     # --------------------------------------------------
-    # Vehicle name
+    # Vehicle
     # --------------------------------------------------
 
     vehicle_name = (
@@ -253,7 +244,7 @@ def add_ai_watermark(
 
     claim_number = claim.get(
         "claimNumber",
-        claim.get("claim_number", "N/A")
+        "N/A"
     )
 
     # --------------------------------------------------
@@ -269,7 +260,7 @@ def add_ai_watermark(
     )
 
     # --------------------------------------------------
-    # Format estimated cost
+    # Cost
     # --------------------------------------------------
 
     try:
@@ -286,16 +277,91 @@ def add_ai_watermark(
         estimated_text = "INR 0 - INR 0"
 
     # --------------------------------------------------
-    # Watermark text
+    # Footer height
     # --------------------------------------------------
 
-    lines = [
+    footer_height = 210
+
+    height, width = image.shape[:2]
+
+    # --------------------------------------------------
+    # Create new canvas
+    # --------------------------------------------------
+
+    canvas = np.full(
+        (
+            height + footer_height,
+            width,
+            3
+        ),
+        (245, 245, 245),
+        dtype=np.uint8
+    )
+
+    # --------------------------------------------------
+    # Put original image at top
+    # --------------------------------------------------
+
+    canvas[0:height, 0:width] = image
+
+    # --------------------------------------------------
+    # Footer background
+    # --------------------------------------------------
+
+    footer_y = height
+
+    cv2.rectangle(
+        canvas,
+        (0, footer_y),
+        (width, height + footer_height),
+        (25, 25, 25),
+        -1
+    )
+
+    # --------------------------------------------------
+    # Footer separator
+    # --------------------------------------------------
+
+    cv2.line(
+        canvas,
+        (0, footer_y),
+        (width, footer_y),
+        (255, 255, 255),
+        2
+    )
+
+    # --------------------------------------------------
+    # Footer title
+    # --------------------------------------------------
+
+    cv2.putText(
+        canvas,
         "AI DAMAGE ASSESSMENT",
+        (25, footer_y + 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA
+    )
+
+    # --------------------------------------------------
+    # First information column
+    # --------------------------------------------------
+
+    left_lines = [
         f"Claim      : {claim_number}",
         f"Evidence   : {evidence_id}",
         f"Date       : {timestamp}",
         f"Vehicle    : {vehicle_name}",
         f"Severity   : {severity}",
+    ]
+
+    # --------------------------------------------------
+    # Second information column
+    # --------------------------------------------------
+
+    right_lines = [
         f"Estimated  : {estimated_text}",
         f"Confidence : {confidence_percent}%",
         "Gemini 3.6 Flash + Roboflow v1",
@@ -303,298 +369,62 @@ def add_ai_watermark(
     ]
 
     # --------------------------------------------------
-    # Panel sizing
+    # Draw left column
     # --------------------------------------------------
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
+    start_y = footer_y + 60
 
-    title_scale = 0.62
-    text_scale = 0.43
-
-    title_thickness = 2
-    text_thickness = 1
-
-    padding_x = 14
-    padding_y = 12
-
-    line_gap = 8
-
-    # Calculate required width
-    max_text_width = 0
-
-    for i, line in enumerate(lines):
-
-        scale = (
-            title_scale
-            if i == 0
-            else text_scale
-        )
-
-        thickness = (
-            title_thickness
-            if i == 0
-            else text_thickness
-        )
-
-        (text_width, text_height), _ = cv2.getTextSize(
-            line,
-            font,
-            scale,
-            thickness
-        )
-
-        max_text_width = max(
-            max_text_width,
-            text_width
-        )
-
-    panel_width = max_text_width + (
-        padding_x * 2
-    )
-
-    panel_height = 0
-
-    line_heights = []
-
-    for i, line in enumerate(lines):
-
-        scale = (
-            title_scale
-            if i == 0
-            else text_scale
-        )
-
-        thickness = (
-            title_thickness
-            if i == 0
-            else text_thickness
-        )
-
-        (_, text_height), _ = cv2.getTextSize(
-            line,
-            font,
-            scale,
-            thickness
-        )
-
-        line_heights.append(text_height)
-
-        panel_height += text_height
-
-        if i < len(lines) - 1:
-            panel_height += line_gap
-
-    panel_height += padding_y * 2
-
-    # --------------------------------------------------
-    # Keep panel inside image
-    # --------------------------------------------------
-
-    max_panel_width = int(w * 0.45)
-    max_panel_height = int(h * 0.55)
-
-    panel_width = min(
-        panel_width,
-        max_panel_width
-    )
-
-    panel_height = min(
-        panel_height,
-        max_panel_height
-    )
-
-    # --------------------------------------------------
-    # Candidate corners
-    # --------------------------------------------------
-
-    margin = 15
-
-    candidates = {
-        "top_left": (
-            margin,
-            margin,
-            margin + panel_width,
-            margin + panel_height
-        ),
-
-        "top_right": (
-            w - margin - panel_width,
-            margin,
-            w - margin,
-            margin + panel_height
-        ),
-
-        "bottom_left": (
-            margin,
-            h - margin - panel_height,
-            margin + panel_width,
-            h - margin
-        ),
-
-        "bottom_right": (
-            w - margin - panel_width,
-            h - margin - panel_height,
-            w - margin,
-            h - margin
-        )
-    }
-
-    # --------------------------------------------------
-    # Calculate overlap between a panel
-    # and Roboflow bounding boxes
-    # --------------------------------------------------
-
-    def intersection_area(box_a, box_b):
-
-        ax1, ay1, ax2, ay2 = box_a
-        bx1, by1, bx2, by2 = box_b
-
-        ix1 = max(ax1, bx1)
-        iy1 = max(ay1, by1)
-
-        ix2 = min(ax2, bx2)
-        iy2 = min(ay2, by2)
-
-        if ix2 <= ix1 or iy2 <= iy1:
-            return 0
-
-        return (
-            (ix2 - ix1) *
-            (iy2 - iy1)
-        )
-
-    # --------------------------------------------------
-    # Score each corner
-    # Lower score = better
-    # --------------------------------------------------
-
-    corner_scores = {}
-
-    for name, panel in candidates.items():
-
-        score = 0
-
-        for pred in predictions:
-
-            try:
-
-                x = float(pred["x"])
-                y = float(pred["y"])
-                pw = float(pred["width"])
-                ph = float(pred["height"])
-
-                x1 = int(x - pw / 2)
-                y1 = int(y - ph / 2)
-                x2 = int(x + pw / 2)
-                y2 = int(y + ph / 2)
-
-                damage_box = (
-                    x1,
-                    y1,
-                    x2,
-                    y2
-                )
-
-                score += intersection_area(
-                    panel,
-                    damage_box
-                )
-
-            except (KeyError, TypeError, ValueError):
-                continue
-
-        corner_scores[name] = score
-
-    # --------------------------------------------------
-    # Select safest corner
-    # --------------------------------------------------
-
-    selected_corner = min(
-        corner_scores,
-        key=corner_scores.get
-    )
-
-    x1, y1, x2, y2 = candidates[
-        selected_corner
-    ]
-
-    # --------------------------------------------------
-    # Draw semi-transparent background
-    # --------------------------------------------------
-
-    overlay = image.copy()
-
-    cv2.rectangle(
-        overlay,
-        (x1, y1),
-        (x2, y2),
-        (15, 15, 15),
-        -1
-    )
-
-    cv2.addWeighted(
-        overlay,
-        0.72,
-        image,
-        0.28,
-        0,
-        image
-    )
-
-    # --------------------------------------------------
-    # Draw border
-    # --------------------------------------------------
-
-    cv2.rectangle(
-        image,
-        (x1, y1),
-        (x2, y2),
-        (255, 255, 255),
-        1
-    )
-
-    # --------------------------------------------------
-    # Draw text
-    # --------------------------------------------------
-
-    current_y = y1 + padding_y
-
-    for i, line in enumerate(lines):
-
-        scale = (
-            title_scale
-            if i == 0
-            else text_scale
-        )
-
-        thickness = (
-            title_thickness
-            if i == 0
-            else text_thickness
-        )
-
-        text_height = line_heights[i]
-
-        current_y += text_height
+    for line in left_lines:
 
         cv2.putText(
-            image,
+            canvas,
             line,
-            (
-                x1 + padding_x,
-                current_y
-            ),
-            font,
-            scale,
+            (25, start_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.48,
             (255, 255, 255),
-            thickness,
+            1,
             cv2.LINE_AA
         )
 
-        current_y += line_gap
+        start_y += 25
 
-    return image
+    # --------------------------------------------------
+    # Draw right column
+    # --------------------------------------------------
 
+    right_x = int(width * 0.52)
+
+    start_y = footer_y + 60
+
+    for line in right_lines:
+
+        cv2.putText(
+            canvas,
+            line,
+            (right_x, start_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.48,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA
+        )
+
+        start_y += 25
+
+    # --------------------------------------------------
+    # Border around footer
+    # --------------------------------------------------
+
+    cv2.rectangle(
+        canvas,
+        (8, footer_y + 8),
+        (width - 8, height + footer_height - 8),
+        (180, 180, 180),
+        1
+    )
+
+    return canvas
 # --------------------------------------------------
 # Detect Endpoint
 # --------------------------------------------------
