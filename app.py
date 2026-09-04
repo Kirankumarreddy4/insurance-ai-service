@@ -621,7 +621,6 @@ def detect():
                     claim,
                     evidence_id,
                     vehicle,
-                    predictions,
                     gemini_result
                 )
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
