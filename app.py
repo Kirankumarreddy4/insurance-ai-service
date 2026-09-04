@@ -166,6 +166,7 @@ def estimate_damage_with_gemini(
                 time.sleep(10)
 
         if response:
+            print(response)
             break
 
     if not response:
@@ -174,11 +175,21 @@ def estimate_damage_with_gemini(
     print(f"Success with model: {model_name}")
 
     text = (response.text or "").strip()
+    print("Gemini Text:")
+    print(repr(text))
+
 
     if not text:
       raise ValueError("Gemini returned an empty response")
 
     try:
+     print("====================================")
+     print("RAW GEMINI RESPONSE")
+     print(response)
+     print("====================================")
+
+     print("TEXT:")
+     print(repr(response.text))
      return json.loads(text)
 
     except json.JSONDecodeError:
