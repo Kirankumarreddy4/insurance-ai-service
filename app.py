@@ -145,7 +145,8 @@ def estimate_damage_with_gemini(
                     contents=contents,
                     config=types.GenerateContentConfig(
                         temperature=0.2,
-                        max_output_tokens=1024
+                        max_output_tokens=1024,
+                        response_mime_type="application/json"
                     )
                 )
 
@@ -170,14 +171,24 @@ def estimate_damage_with_gemini(
     if not response:
         raise last_error or Exception("All Gemini models failed")
 
-    text = response.text
+    print(f"Success with model: {model_name}")
 
-    match = re.search(r"\{.*\}", text, re.DOTALL)
+    text = (response.text or "").strip()
 
-    if match:
-        text = match.group(0)
+    if not text:
+      raise ValueError("Gemini returned an empty response")
 
-    return json.loads(text)
+    try:
+     return json.loads(text)
+
+    except json.JSONDecodeError:
+
+       print("Gemini returned invalid JSON:")
+       print(text)
+
+       raise ValueError(
+        "Gemini returned invalid JSON"
+      )
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
