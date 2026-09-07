@@ -204,6 +204,7 @@ def estimate_damage_with_gemini(
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+
 def add_ai_watermark(
     image,
     claim,
@@ -212,14 +213,22 @@ def add_ai_watermark(
     gemini_result
 ):
     """
-    Adds a dedicated AI assessment footer BELOW the original image.
+    Creates a dedicated AI assessment footer below the image.
 
-    The original image is not covered by the watermark.
+    Responsive behavior:
+    - Wide images: 2-column footer
+    - Narrow images: 1-column footer
     """
 
-    # --------------------------------------------------
-    # Read Gemini values
-    # --------------------------------------------------
+    # ==================================================
+    # IMAGE DIMENSIONS
+    # ==================================================
+
+    image_height, image_width = image.shape[:2]
+
+    # ==================================================
+    # GEMINI VALUES
+    # ==================================================
 
     severity = str(
         gemini_result.get("severity", "Unknown")
@@ -237,20 +246,31 @@ def add_ai_watermark(
         "confidence", 0
     )
 
+    # Gemini may return:
+    # 0.92
+    # or
+    # 92
+
     try:
+
         confidence = float(confidence)
 
         if confidence <= 1:
-            confidence_percent = round(confidence * 100)
+            confidence_percent = round(
+                confidence * 100
+            )
         else:
-            confidence_percent = round(confidence)
+            confidence_percent = round(
+                confidence
+            )
 
     except (TypeError, ValueError):
+
         confidence_percent = 0
 
-    # --------------------------------------------------
-    # Vehicle
-    # --------------------------------------------------
+    # ==================================================
+    # VEHICLE
+    # ==================================================
 
     vehicle_name = (
         f"{vehicle.get('make', '')} "
@@ -258,20 +278,21 @@ def add_ai_watermark(
     ).strip()
 
     if not vehicle_name:
+
         vehicle_name = "Unknown Vehicle"
 
-    # --------------------------------------------------
-    # Claim number
-    # --------------------------------------------------
+    # ==================================================
+    # CLAIM
+    # ==================================================
 
     claim_number = claim.get(
         "claimNumber",
         "N/A"
     )
 
-    # --------------------------------------------------
-    # IST timestamp
-    # --------------------------------------------------
+    # ==================================================
+    # IST TIME
+    # ==================================================
 
     ist_now = datetime.now(
         ZoneInfo("Asia/Kolkata")
@@ -281,11 +302,12 @@ def add_ai_watermark(
         "%d-%b-%Y %H:%M IST"
     )
 
-    # --------------------------------------------------
-    # Cost
-    # --------------------------------------------------
+    # ==================================================
+    # COST
+    # ==================================================
 
     try:
+
         cost_min = float(cost_min)
         cost_max = float(cost_max)
 
@@ -298,156 +320,321 @@ def add_ai_watermark(
 
         estimated_text = "INR 0 - INR 0"
 
-    # --------------------------------------------------
-    # Footer height
-    # --------------------------------------------------
+    # ==================================================
+    # FONT SIZE BASED ON IMAGE WIDTH
+    # ==================================================
 
-    footer_height = 210
+    if image_width < 500:
 
-    height, width = image.shape[:2]
+        title_scale = 0.48
+        text_scale = 0.30
+        thickness = 1
+        title_thickness = 2
 
-    # --------------------------------------------------
-    # Create new canvas
-    # --------------------------------------------------
+    elif image_width < 800:
+
+        title_scale = 0.58
+        text_scale = 0.36
+        thickness = 1
+        title_thickness = 2
+
+    else:
+
+        title_scale = 0.70
+        text_scale = 0.42
+        thickness = 1
+        title_thickness = 2
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # ==================================================
+    # SELECT LAYOUT
+    # ==================================================
+
+    # Narrow images MUST use one column.
+    # This prevents the overlapping you currently see.
+
+    two_columns = image_width >= 850
+
+    # ==================================================
+    # BUILD CONTENT
+    # ==================================================
+
+    left_lines = [
+
+        f"Claim      : {claim_number}",
+
+        f"Evidence   : {evidence_id}",
+
+        f"Date       : {timestamp}",
+
+        f"Vehicle    : {vehicle_name}",
+
+        f"Severity   : {severity}"
+
+    ]
+
+    right_lines = [
+
+        f"Estimated  : {estimated_text}",
+
+        f"Confidence : {confidence_percent}%",
+
+        "Gemini 3.6 Flash + Roboflow v1",
+
+        "DO NOT EDIT | DIGITAL EVIDENCE"
+
+    ]
+
+    # ==================================================
+    # FOOTER HEIGHT
+    # ==================================================
+
+    if two_columns:
+
+        footer_lines = max(
+            len(left_lines),
+            len(right_lines)
+        )
+
+    else:
+
+        footer_lines = (
+            len(left_lines) +
+            len(right_lines)
+        )
+
+    line_height = int(
+        image_width * 0.035
+    )
+
+    line_height = max(
+        18,
+        min(line_height, 30)
+    )
+
+    footer_height = (
+        58 +
+        footer_lines * line_height
+    )
+
+    # ==================================================
+    # CREATE NEW CANVAS
+    # ==================================================
 
     canvas = np.full(
         (
-            height + footer_height,
-            width,
+            image_height + footer_height,
+            image_width,
             3
         ),
-        (245, 245, 245),
+        (25, 25, 25),
         dtype=np.uint8
     )
 
-    # --------------------------------------------------
-    # Put original image at top
-    # --------------------------------------------------
+    # ==================================================
+    # ORIGINAL IMAGE
+    # ==================================================
 
-    canvas[0:height, 0:width] = image
+    canvas[
+        0:image_height,
+        0:image_width
+    ] = image
 
-    # --------------------------------------------------
-    # Footer background
-    # --------------------------------------------------
+    footer_y = image_height
 
-    footer_y = height
+    # ==================================================
+    # FOOTER BACKGROUND
+    # ==================================================
 
     cv2.rectangle(
         canvas,
+
         (0, footer_y),
-        (width, height + footer_height),
+
+        (
+            image_width,
+            image_height + footer_height
+        ),
+
         (25, 25, 25),
+
         -1
     )
 
-    # --------------------------------------------------
-    # Footer separator
-    # --------------------------------------------------
+    # ==================================================
+    # TOP SEPARATOR
+    # ==================================================
 
     cv2.line(
         canvas,
+
         (0, footer_y),
-        (width, footer_y),
+
+        (image_width, footer_y),
+
         (255, 255, 255),
+
         2
     )
 
-    # --------------------------------------------------
-    # Footer title
-    # --------------------------------------------------
+    # ==================================================
+    # HEADER
+    # ==================================================
 
     cv2.putText(
         canvas,
+
         "AI DAMAGE ASSESSMENT",
-        (25, footer_y + 32),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.75,
+
+        (20, footer_y + 30),
+
+        font,
+
+        title_scale,
+
         (255, 255, 255),
-        2,
+
+        title_thickness,
+
         cv2.LINE_AA
     )
 
-    # --------------------------------------------------
-    # First information column
-    # --------------------------------------------------
+    # ==================================================
+    # CONTENT START
+    # ==================================================
 
-    left_lines = [
-        f"Claim      : {claim_number}",
-        f"Evidence   : {evidence_id}",
-        f"Date       : {timestamp}",
-        f"Vehicle    : {vehicle_name}",
-        f"Severity   : {severity}",
-    ]
+    start_y = footer_y + 55
 
-    # --------------------------------------------------
-    # Second information column
-    # --------------------------------------------------
+    # ==================================================
+    # TWO COLUMN LAYOUT
+    # ==================================================
 
-    right_lines = [
-        f"Estimated  : {estimated_text}",
-        f"Confidence : {confidence_percent}%",
-        "Gemini 3.6 Flash + Roboflow v1",
-        "DO NOT EDIT | DIGITAL EVIDENCE"
-    ]
+    if two_columns:
 
-    # --------------------------------------------------
-    # Draw left column
-    # --------------------------------------------------
+        left_x = 20
 
-    start_y = footer_y + 60
-
-    for line in left_lines:
-
-        cv2.putText(
-            canvas,
-            line,
-            (25, start_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.48,
-            (255, 255, 255),
-            1,
-            cv2.LINE_AA
+        right_x = int(
+            image_width * 0.52
         )
 
-        start_y += 25
-
-    # --------------------------------------------------
-    # Draw right column
-    # --------------------------------------------------
-
-    right_x = int(width * 0.52)
-
-    start_y = footer_y + 60
-
-    for line in right_lines:
-
-        cv2.putText(
-            canvas,
-            line,
-            (right_x, start_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.48,
-            (255, 255, 255),
-            1,
-            cv2.LINE_AA
+        max_lines = max(
+            len(left_lines),
+            len(right_lines)
         )
 
-        start_y += 25
+        for i in range(max_lines):
 
-    # --------------------------------------------------
-    # Border around footer
-    # --------------------------------------------------
+            current_y = (
+                start_y +
+                i * line_height
+            )
+
+            if i < len(left_lines):
+
+                cv2.putText(
+                    canvas,
+
+                    left_lines[i],
+
+                    (
+                        left_x,
+                        current_y
+                    ),
+
+                    font,
+
+                    text_scale,
+
+                    (255, 255, 255),
+
+                    thickness,
+
+                    cv2.LINE_AA
+                )
+
+            if i < len(right_lines):
+
+                cv2.putText(
+                    canvas,
+
+                    right_lines[i],
+
+                    (
+                        right_x,
+                        current_y
+                    ),
+
+                    font,
+
+                    text_scale,
+
+                    (255, 255, 255),
+
+                    thickness,
+
+                    cv2.LINE_AA
+                )
+
+    # ==================================================
+    # ONE COLUMN LAYOUT
+    # ==================================================
+
+    else:
+
+        all_lines = (
+            left_lines +
+            right_lines
+        )
+
+        for i, line in enumerate(all_lines):
+
+            current_y = (
+                start_y +
+                i * line_height
+            )
+
+            cv2.putText(
+                canvas,
+
+                line,
+
+                (
+                    20,
+                    current_y
+                ),
+
+                font,
+
+                text_scale,
+
+                (255, 255, 255),
+
+                thickness,
+
+                cv2.LINE_AA
+            )
+
+    # ==================================================
+    # FOOTER BORDER
+    # ==================================================
 
     cv2.rectangle(
         canvas,
+
         (8, footer_y + 8),
-        (width - 8, height + footer_height - 8),
+
+        (
+            image_width - 8,
+            image_height + footer_height - 8
+        ),
+
         (180, 180, 180),
+
         1
     )
 
-    return canvas
-# --------------------------------------------------
+    return canvas# --------------------------------------------------
 # Detect Endpoint
 # --------------------------------------------------
 
