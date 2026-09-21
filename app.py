@@ -200,111 +200,193 @@ Do not add explanations outside the JSON.
 
 
     # =========================================================
-    # MODEL
+    # GEMINI MODEL FALLBACK
     # =========================================================
 
-    model_name = "gemini-3.6-flash"
+    models = [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash"
+    ]
+
+    response = None
+    last_error = None
 
 
     # =========================================================
-    # CALL GEMINI
+    # TRY MODELS
+    # =========================================================
+
+    for model_name in models:
+
+        try:
+
+            print(
+                f"Trying Gemini model: {model_name}"
+            )
+
+            contents = [
+                prompt,
+                original_image_part
+            ]
+
+            if predictions:
+                contents.append(
+                    annotated_image_part
+                )
+
+
+            response = client.models.generate_content(
+
+                model=model_name,
+
+                contents=contents,
+
+                config=types.GenerateContentConfig(
+
+                    response_mime_type="application/json",
+
+                    response_schema=response_schema,
+
+                    max_output_tokens=2048
+                )
+            )
+
+
+            print(
+                f"Success with model: {model_name}"
+            )
+
+            break
+
+
+        except Exception as ex:
+
+            last_error = ex
+
+            error_text = str(ex)
+
+            print(
+                f"{model_name} failed:"
+            )
+
+            print(error_text)
+
+
+            # =================================================
+            # QUOTA / RATE LIMIT
+            # =================================================
+
+            if (
+                "429" in error_text
+                or
+                "RESOURCE_EXHAUSTED" in error_text
+                or
+                "quota" in error_text.lower()
+            ):
+
+                print(
+                    f"Quota/rate limit on {model_name}. "
+                    "Trying next model."
+                )
+
+                continue
+
+
+            # =================================================
+            # MODEL NOT FOUND
+            # =================================================
+
+            if (
+                "404" in error_text
+                or
+                "NOT_FOUND" in error_text
+            ):
+
+                print(
+                    f"{model_name} unavailable. "
+                    "Trying next model."
+                )
+
+                continue
+
+
+            # =================================================
+            # OTHER ERROR
+            # =================================================
+
+            print(
+                f"Unexpected Gemini error on "
+                f"{model_name}. Trying next model."
+            )
+
+            continue
+
+
+    # =========================================================
+    # NO MODEL WORKED
+    # =========================================================
+
+    if response is None:
+
+        raise last_error or Exception(
+            "All Gemini models failed"
+        )
+
+
+    # =========================================================
+    # RAW RESPONSE
+    # =========================================================
+
+    print("Gemini raw response:")
+    print(response.text)
+
+
+    # =========================================================
+    # VALIDATE RESPONSE
+    # =========================================================
+
+    if not response.text:
+
+        raise ValueError(
+            "Gemini returned an empty response"
+        )
+
+
+    text = response.text.strip()
+
+
+    # =========================================================
+    # PARSE JSON
     # =========================================================
 
     try:
 
-        contents = [
-            prompt,
-            original_image_part
-        ]
+        result = json.loads(text)
 
-        if predictions:
-            contents.append(
-                annotated_image_part
-            )
-
-
-        response = client.models.generate_content(
-
-            model=model_name,
-
-            contents=contents,
-
-            config=types.GenerateContentConfig(
-
-                response_mime_type="application/json",
-
-                response_schema=response_schema,
-
-                temperature=0.1,
-
-                max_output_tokens=2048
-            )
-        )
-
+    except json.JSONDecodeError as json_error:
 
         print(
-            "Gemini raw response:"
+            "Gemini returned invalid JSON:"
         )
 
-        print(response.text)
-
-
-        # =====================================================
-        # VALIDATE RESPONSE
-        # =====================================================
-
-        if not response.text:
-
-            raise ValueError(
-                "Gemini returned an empty response"
-            )
-
-
-        text = response.text.strip()
-
-
-        # =====================================================
-        # PARSE JSON
-        # =====================================================
-
-        try:
-
-            result = json.loads(text)
-
-        except json.JSONDecodeError as json_error:
-
-            print(
-                "Gemini returned invalid JSON:"
-            )
-
-            print(text)
-
-            print(
-                "JSON error:",
-                json_error
-            )
-
-            raise ValueError(
-                "Gemini returned invalid JSON"
-            )
-
+        print(text)
 
         print(
-            "Gemini JSON parsed successfully"
+            "JSON error:",
+            json_error
         )
 
-        return result
-
-
-    except Exception as ex:
-
-        print(
-            "Gemini estimation failed:",
-            str(ex)
+        raise ValueError(
+            "Gemini returned invalid JSON"
         )
 
-        raise
 
+    print(
+        "Gemini JSON parsed successfully"
+    )
+
+    return result
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
