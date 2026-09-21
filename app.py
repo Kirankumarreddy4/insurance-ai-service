@@ -63,52 +63,130 @@ def estimate_damage_with_gemini(
     claim,
     original_image_base64,
 ):
-    schema = {
-        "damageDetected": True,
-        "severity": "",
-        "estimatedCostMin": 0,
-        "estimatedCostMax": 0,
-        "currency": "INR",
-        "laborHours": 0,
-        "partsToReplace": [],
-        "partsToRepair": [],
-        "confidence": 0,
-        "recommendation": "",
-        "summary": ""
+
+    # =========================================================
+    # STRUCTURED JSON SCHEMA
+    # =========================================================
+
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+
+            "summary": {
+                "type": "STRING"
+            },
+
+            "success": {
+                "type": "BOOLEAN"
+            },
+
+            "severity": {
+                "type": "STRING"
+            },
+
+            "recommendation": {
+                "type": "STRING"
+            },
+
+            "partsToReplace": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "STRING"
+                }
+            },
+
+            "partsToRepair": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "STRING"
+                }
+            },
+
+            "laborHours": {
+                "type": "NUMBER"
+            },
+
+            "estimatedCostMin": {
+                "type": "NUMBER"
+            },
+
+            "estimatedCostMax": {
+                "type": "NUMBER"
+            },
+
+            "damageDetected": {
+                "type": "BOOLEAN"
+            },
+
+            "currency": {
+                "type": "STRING"
+            },
+
+            "confidence": {
+                "type": "NUMBER"
+            }
+        },
+
+        "required": [
+            "summary",
+            "success",
+            "severity",
+            "recommendation",
+            "partsToReplace",
+            "partsToRepair",
+            "laborHours",
+            "estimatedCostMin",
+            "estimatedCostMax",
+            "damageDetected",
+            "currency",
+            "confidence"
+        ]
     }
 
+
+    # =========================================================
+    # PROMPT
+    # =========================================================
+
     prompt = f"""
-    You are an experienced automobile insurance surveyor.
+You are an experienced automobile insurance surveyor.
 
-    Analyse the ORIGINAL vehicle image.
+Analyze the ORIGINAL vehicle image carefully.
 
-    If Roboflow detections are available, use them as supporting evidence.
+Use Roboflow detections as supporting evidence, but do not rely
+only on Roboflow.
 
-    If no detections are available, perform your own visual assessment from the image.
+Vehicle:
+{json.dumps(vehicle, indent=2)}
 
-    Vehicle
-    {json.dumps(vehicle, indent=2)}
+Claim:
+{json.dumps(claim, indent=2)}
 
-    Claim
-    {json.dumps(claim, indent=2)}
+Roboflow detections:
+{json.dumps(predictions, indent=2)}
 
-    Roboflow detections
-    {json.dumps(predictions, indent=2)}
+Requirements:
 
-    Instructions
+1. Identify visible vehicle damage.
+2. Determine overall severity.
+3. Estimate realistic repair cost in INR.
+4. Identify parts that should be replaced.
+5. Identify parts that should be repaired.
+6. Estimate labor hours.
+7. Provide confidence between 0 and 1.
+8. Compare the visible damage with the claim description.
+9. Mention a claim-description mismatch in the summary when applicable.
+10. Keep summary and recommendation concise.
 
-    - Carefully inspect the image.
-    - Do NOT rely only on Roboflow.
-    - If Roboflow missed visible damage, identify it yourself.
-    - If the image appears undamaged, clearly state that.
-    - Estimate realistic repair costs.
-    - Recommend repair or replacement where appropriate.
-    - If image quality is insufficient, reduce confidence.
+Return only the requested structured JSON.
+Do not use Markdown.
+Do not add explanations outside the JSON.
+"""
 
-    Return ONLY valid JSON matching this schema:
 
-    {json.dumps(schema, indent=4)}
-    """
+    # =========================================================
+    # IMAGE PARTS
+    # =========================================================
 
     original_image_part = types.Part.from_bytes(
         data=base64.b64decode(original_image_base64),
@@ -120,86 +198,112 @@ def estimate_damage_with_gemini(
         mime_type="image/jpeg",
     )
 
-    models = [
-    "gemini-3.6-flash",
-    "gemini-3.7-flash",
-    "gemini-flash-latest",
-    "gemini-pro-latest"
-     ]
 
-    response = None
-    last_error = None
+    # =========================================================
+    # MODEL
+    # =========================================================
 
-    for model_name in models:
-        for attempt in range(5):
-            try:
-                contents = [
-                    prompt,
-                    original_image_part
-                ]
-
-                if predictions:
-                    contents.append(annotated_image_part)
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        temperature=0.2,
-                        max_output_tokens=1024,
-                        response_mime_type="application/json"
-                    )
-                )
-
-                print(f"Success with model: {model_name}")
-                break
-
-            except Exception as ex:
-                last_error = ex
-
-                print("="*80)
-                print("Gemini Error")
-                print(type(ex))
-                print(ex)
-                print("="*80)
-
-                print(f"{model_name} attempt {attempt+1} failed")
-                time.sleep(10)
-
-        if response:
-            print(response)
-            break
-
-    if not response:
-        raise last_error or Exception("All Gemini models failed")
-
-    print(f"Success with model: {model_name}")
-
-    text = (response.text or "").strip()
-    print("Gemini Text:")
-    print(repr(text))
+    model_name = "gemini-3.6-flash"
 
 
-    if not text:
-      raise ValueError("Gemini returned an empty response")
+    # =========================================================
+    # CALL GEMINI
+    # =========================================================
 
     try:
-     print("====================================")
-     print("RAW GEMINI RESPONSE")
-     print(response)
-     print("====================================")
 
-     print("TEXT:")
-     print(repr(response.text))
-     return json.loads(text)
+        contents = [
+            prompt,
+            original_image_part
+        ]
 
-    except json.JSONDecodeError:
+        if predictions:
+            contents.append(
+                annotated_image_part
+            )
 
-       print("Gemini returned invalid JSON:")
-       print(text)
 
-       raise ValueError(
-        "Gemini returned invalid JSON"
-      )
+        response = client.models.generate_content(
+
+            model=model_name,
+
+            contents=contents,
+
+            config=types.GenerateContentConfig(
+
+                response_mime_type="application/json",
+
+                response_schema=response_schema,
+
+                temperature=0.1,
+
+                max_output_tokens=2048
+            )
+        )
+
+
+        print(
+            "Gemini raw response:"
+        )
+
+        print(response.text)
+
+
+        # =====================================================
+        # VALIDATE RESPONSE
+        # =====================================================
+
+        if not response.text:
+
+            raise ValueError(
+                "Gemini returned an empty response"
+            )
+
+
+        text = response.text.strip()
+
+
+        # =====================================================
+        # PARSE JSON
+        # =====================================================
+
+        try:
+
+            result = json.loads(text)
+
+        except json.JSONDecodeError as json_error:
+
+            print(
+                "Gemini returned invalid JSON:"
+            )
+
+            print(text)
+
+            print(
+                "JSON error:",
+                json_error
+            )
+
+            raise ValueError(
+                "Gemini returned invalid JSON"
+            )
+
+
+        print(
+            "Gemini JSON parsed successfully"
+        )
+
+        return result
+
+
+    except Exception as ex:
+
+        print(
+            "Gemini estimation failed:",
+            str(ex)
+        )
+
+        raise
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
