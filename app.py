@@ -131,117 +131,152 @@ def estimate_damage_with_gemini(
     # PROMPT
     # =========================================================
 
-   prompt = f"""
-        You are an experienced automobile damage assessor
-        supporting a motor insurance claims process.
-        
-        Your task is to analyze the ORIGINAL vehicle image and produce
-        a structured damage assessment.
-        
-        Use the Roboflow detections as supporting evidence only.
-        Do not assume a part is damaged merely because Roboflow detected
-        an object or class. Visually verify the damage from the ORIGINAL
-        image.
-        
-        Vehicle:
-        {json.dumps(vehicle, indent=2)}
-        
-        Claim:
-        {json.dumps(claim, indent=2)}
-        
-        Roboflow detections:
-        {json.dumps(predictions, indent=2)}
-        
-        IMPORTANT ASSESSMENT RULES:
-        
-        1. Identify only damage that is visibly supported by the image.
-        
-        2. For every damaged vehicle part, create exactly one item in
-           "damageItems".
-        
-        3. For each damage item provide:
-           - partName
-           - action
-           - estimatedCostMin
-           - estimatedCostMax
-        
-        4. "action" must be exactly:
-           - "Repair"
-           - "Replace"
-        
-        5. Use realistic repair or replacement cost estimates in INR.
-        
-        6. Estimate the cost for the individual damaged part itself.
-           Do not put the complete vehicle repair cost into every part.
-        
-        7. Do not double-count the same damaged part.
-        
-        8. The overall "estimatedCostMin" must equal the sum of all
-           damageItems estimatedCostMin values.
-        
-        9. The overall "estimatedCostMax" must equal the sum of all
-           damageItems estimatedCostMax values.
-        
-        10. If no visible damage is identified:
-            - damageItems = []
-            - partsToReplace = []
-            - partsToRepair = []
-            - laborHours = 0
-            - estimatedCostMin = 0
-            - estimatedCostMax = 0
-            - damageDetected = false
-            - severity = "None"
-        
-        11. If visible damage exists:
-            - damageDetected = true
-            - severity must reflect the overall visible damage
-            - include every materially damaged part in damageItems
-        
-        12. Do not invent hidden or internal damage that cannot be
-            reasonably inferred from the image.
-        
-        13. Distinguish between:
-            - Repair: the existing part can reasonably be repaired
-            - Replace: the part is substantially damaged and replacement
-              is more appropriate
-        
-        14. Labor hours should represent the estimated labor effort
-            for the overall visible damage.
-        
-        15. Confidence must be a number between 0 and 1.
-        
-        16. Compare the visible damage against the claim description.
-        
-        17. If the claim description does not match the visible damage,
-            mention the mismatch clearly in the summary and recommendation.
-        
-        18. A claim-description mismatch alone is not proof of fraud.
-        
-        19. Do not decide policy coverage, sanction amount, approval,
-            rejection, or claim eligibility. Insurance coverage decisions
-            will be handled separately using the policy terms.
-        
-        20. Keep the summary concise.
-        
-        21. Keep the recommendation concise.
-        
-        22. Return only structured JSON matching the response schema.
-        
-        23. Do not return Markdown.
-        
-        24. Do not add explanations outside the JSON.
-        
-        25. Use currency = "INR".
-        
-        IMPORTANT:
-        Each damageItems entry must represent ONE damaged part and its
-        individual estimated repair/replacement cost.
-        
-        Do not combine multiple parts into one damageItems entry.
-        Do not put a full-vehicle estimate into an individual part.
-        
-        If there is no damage, damageItems must be an empty array.
-        """
+    prompt = f"""
+You are an experienced automobile insurance damage assessor
+supporting a motor insurance claims process.
+
+Your task is to analyze the ORIGINAL vehicle image and produce
+a structured damage assessment.
+
+Use the Roboflow detections as supporting evidence only.
+Do not assume a part is damaged merely because Roboflow detected
+an object or class. Visually verify the damage from the ORIGINAL
+image.
+
+Vehicle:
+{json.dumps(vehicle, indent=2)}
+
+Claim:
+{json.dumps(claim, indent=2)}
+
+Roboflow detections:
+{json.dumps(predictions, indent=2)}
+
+IMPORTANT ASSESSMENT RULES:
+
+1. Identify only damage that is visibly supported by the image.
+
+2. For every damaged vehicle part, create exactly one item in
+   "damageItems".
+
+3. For each damage item provide:
+   - partName
+   - action
+   - estimatedCostMin
+   - estimatedCostMax
+
+4. "action" must be exactly one of:
+   - "Repair"
+   - "Replace"
+
+5. Use realistic repair/replacement cost estimates in INR.
+
+6. Estimate the cost for the individual part itself.
+   Do not put the complete vehicle repair cost into each part.
+
+7. Do not double-count the same damaged part.
+
+8. The overall:
+   "estimatedCostMin"
+   and
+   "estimatedCostMax"
+   must represent the sum of the corresponding individual
+   damage item estimates.
+
+9. If no visible damage is identified:
+   - damageItems must be []
+   - partsToReplace must be []
+   - partsToRepair must be []
+   - laborHours must be 0
+   - estimatedCostMin must be 0
+   - estimatedCostMax must be 0
+   - damageDetected must be false
+   - severity must be "None"
+
+10. If visible damage exists:
+    - damageDetected must be true
+    - severity must reflect the overall visible damage
+    - include every materially damaged part in damageItems
+
+11. Do not invent hidden or internal damage that cannot be
+    reasonably inferred from the image.
+
+12. Distinguish between:
+    - Repair: the existing part can reasonably be repaired
+    - Replace: the part appears substantially damaged and
+      replacement is more appropriate
+
+13. The estimated cost should represent the likely cost for
+    repairing or replacing that individual part, including
+    reasonable part-related work, but do not add unrelated
+    vehicle expenses.
+
+14. Provide laborHours as the estimated labor effort for the
+    overall visible damage.
+
+15. Provide confidence as a number between 0 and 1.
+
+16. Compare the visible damage against the claim description.
+
+17. If the claim description does not match the visible damage,
+    mention the mismatch clearly in the summary and recommendation.
+
+18. Do not treat a claim-description mismatch by itself as proof
+    of fraud.
+
+19. Do not decide insurance coverage, policy eligibility,
+    sanction amount, or claim approval/rejection.
+    The policy decision will be performed separately by the
+    insurance decision engine.
+
+20. Return only the requested structured JSON.
+
+21. Do not return Markdown.
+
+22. Do not add any explanation outside the JSON.
+
+OUTPUT REQUIREMENTS:
+
+The "damageItems" array must contain one object per damaged part.
+
+Example format:
+
+"damageItems": [
+    {{
+        "partName": "Bonnet / Hood",
+        "action": "Replace",
+        "estimatedCostMin": 70000,
+        "estimatedCostMax": 90000
+    }},
+    {{
+        "partName": "Front Bumper Assembly",
+        "action": "Replace",
+        "estimatedCostMin": 40000,
+        "estimatedCostMax": 50000
+    }},
+    {{
+        "partName": "Front Left Fender",
+        "action": "Repair",
+        "estimatedCostMin": 10000,
+        "estimatedCostMax": 15000
+    }}
+]
+
+The overall estimatedCostMin and estimatedCostMax must equal
+the sum of the corresponding damageItems.
+
+For example, if damageItems contain:
+
+70,000 + 40,000 + 10,000 = 120,000
+
+then estimatedCostMin must be 120000.
+
+Do not include currency symbols or commas inside numeric
+values.
+
+Use:
+currency = "INR"
+"""
 
     # =========================================================
     # IMAGE PARTS
@@ -953,4 +988,3 @@ def detect():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
-
