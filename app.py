@@ -1147,8 +1147,96 @@ def detect():
             print("Calling Gemini...")
 
             gemini_result = estimate_damage_with_gemini(
-                annotated_base64, predictions, vehicle, claim, original_base64
-            )
+                    annotated_base64,
+                    predictions,
+                    vehicle,
+                    claim,
+                    original_base64
+                )
+
+                # =========================================================
+                # VALIDATE DAMAGE ITEMS
+                # =========================================================
+
+            damageItems = gemini_result.get("damageItems", [])
+
+            for item in damageItems:
+
+                    if item.get("action") not in ["Repair", "Replace"]:
+                        raise ValueError(
+                            f"Invalid damage action: {item.get('action')}"
+                        )
+
+                    if not item.get("partName"):
+                        raise ValueError(
+                            "Damage item missing partName"
+                        )
+
+                    cost_min = float(
+                        item.get("estimatedCostMin", 0)
+                    )
+
+                    cost_max = float(
+                        item.get("estimatedCostMax", 0)
+                    )
+
+                    if cost_min < 0:
+                        raise ValueError(
+                            "Damage item estimatedCostMin cannot be negative"
+                        )
+
+                    if cost_max < 0:
+                        raise ValueError(
+                            "Damage item estimatedCostMax cannot be negative"
+                        )
+
+                    if cost_min > cost_max:
+                        raise ValueError(
+                            f"Invalid cost range for {item.get('partName')}"
+                        )
+
+
+                # =========================================================
+                # VALIDATE TOTAL COST AGAINST DAMAGE ITEMS
+                # =========================================================
+
+                calculated_min = sum(
+                    float(item.get("estimatedCostMin", 0))
+                    for item in damageItems
+                )
+
+                calculated_max = sum(
+                    float(item.get("estimatedCostMax", 0))
+                    for item in damageItems
+                )
+
+                gemini_min = float(
+                    gemini_result.get("estimatedCostMin", 0)
+                )
+
+                gemini_max = float(
+                    gemini_result.get("estimatedCostMax", 0)
+                )
+
+                if abs(calculated_min - gemini_min) > 1:
+                    raise ValueError(
+                        f"estimatedCostMin mismatch. "
+                        f"Damage items total = {calculated_min}, "
+                        f"Gemini total = {gemini_min}"
+                    )
+
+                if abs(calculated_max - gemini_max) > 1:
+                    raise ValueError(
+                        f"estimatedCostMax mismatch. "
+                        f"Damage items total = {calculated_max}, "
+                        f"Gemini total = {gemini_max}"
+                    )
+
+
+# =========================================================
+# GEMINI SUCCESS
+# =========================================================
+
             gemini_result["success"] = True
             print("Called Gemini...")
 
