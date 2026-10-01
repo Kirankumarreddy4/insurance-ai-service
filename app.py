@@ -404,7 +404,604 @@ currency = "INR"
     print("Gemini JSON parsed successfully")
     return result
 
+# --------------------------------------------------
+# Gemini Claim Decision Analysis
+# --------------------------------------------------
 
+def analyze_claim_decision_with_gemini(
+    claim,
+    damage_lines,
+    policy_terms
+):
+    """
+    Analyze damaged vehicle parts against structured
+    policy terms and return decision-support insights.
+
+    This function DOES NOT make the final claim decision.
+    It provides coverage, policy, financial, and review insights
+    for the Service Rep.
+    """
+
+    # =========================================================
+    # STRUCTURED JSON SCHEMA
+    # =========================================================
+
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+
+            "claimSummary": {
+                "type": "STRING"
+            },
+
+            "coverageOverview": {
+                "type": "STRING"
+            },
+
+            "financialInsight": {
+                "type": "STRING"
+            },
+
+            "missingInformation": {
+                "type": "STRING"
+            },
+
+            "policyConflicts": {
+                "type": "STRING"
+            },
+
+            "humanReviewRequired": {
+                "type": "BOOLEAN"
+            },
+
+            "overallConfidence": {
+                "type": "NUMBER"
+            },
+
+            "damageLineInsights": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+
+                        "partName": {
+                            "type": "STRING"
+                        },
+
+                        "action": {
+                            "type": "STRING"
+                        },
+
+                        "coverageStatus": {
+                            "type": "STRING"
+                        },
+
+                        "applicableClauseNumber": {
+                            "type": "STRING"
+                        },
+
+                        "applicableClauseTitle": {
+                            "type": "STRING"
+                        },
+
+                        "decisionImpact": {
+                            "type": "STRING"
+                        },
+
+                        "coveredAmount": {
+                            "type": "NUMBER"
+                        },
+
+                        "nonCoveredAmount": {
+                            "type": "NUMBER"
+                        },
+
+                        "deductibleAmount": {
+                            "type": "NUMBER"
+                        },
+
+                        "policyLimitAmount": {
+                            "type": "NUMBER"
+                        },
+
+                        "reason": {
+                            "type": "STRING"
+                        },
+
+                        "sourcePageNumber": {
+                            "type": "NUMBER"
+                        },
+
+                        "confidence": {
+                            "type": "NUMBER"
+                        }
+                    },
+
+                    "required": [
+                        "partName",
+                        "action",
+                        "coverageStatus",
+                        "applicableClauseNumber",
+                        "applicableClauseTitle",
+                        "decisionImpact",
+                        "coveredAmount",
+                        "nonCoveredAmount",
+                        "deductibleAmount",
+                        "policyLimitAmount",
+                        "reason",
+                        "sourcePageNumber",
+                        "confidence"
+                    ]
+                }
+            }
+        },
+
+        "required": [
+            "claimSummary",
+            "coverageOverview",
+            "financialInsight",
+            "missingInformation",
+            "policyConflicts",
+            "humanReviewRequired",
+            "overallConfidence",
+            "damageLineInsights"
+        ]
+    }
+
+
+    # =========================================================
+    # PROMPT
+    # =========================================================
+
+    prompt = f"""
+You are an experienced motor insurance claim policy analyst.
+
+Your task is to provide decision-support insights for a
+Service Representative reviewing an insurance claim.
+
+You will receive:
+
+1. Claim information
+2. AI-identified damaged vehicle parts
+3. Structured policy terms extracted from the customer's policy
+
+IMPORTANT:
+You are NOT the final claim decision maker.
+
+Your job is to analyze the evidence and policy terms and provide
+clear, traceable insights for the Service Representative.
+
+--------------------------------------------------
+CLAIM
+--------------------------------------------------
+
+{json.dumps(claim, indent=2)}
+
+--------------------------------------------------
+DAMAGED PARTS
+--------------------------------------------------
+
+{json.dumps(damage_lines, indent=2)}
+
+--------------------------------------------------
+POLICY TERMS
+--------------------------------------------------
+
+{json.dumps(policy_terms, indent=2)}
+
+
+==================================================
+POLICY ANALYSIS RULES
+==================================================
+
+1. Analyze every damage line individually.
+
+2. Match each damaged part against the supplied policy terms.
+
+3. Use only the supplied policy terms as the policy source.
+
+4. Do NOT invent policy clauses, coverage conditions,
+   limits, deductibles, or exclusions.
+
+5. If an applicable coverage clause exists, identify it.
+
+6. If an explicit exclusion applies, identify the exclusion.
+
+7. If the policy information is insufficient to determine coverage,
+   use "Requires Review".
+
+8. Do NOT interpret the absence of a matching clause alone as
+   proof that the damage is excluded.
+
+9. A general policy term may apply even when no part-specific term
+   exists.
+
+10. If multiple policy terms apply, identify the most relevant
+    clause and mention conflicting clauses.
+
+11. Preserve the exact clause number and clause title from the
+    supplied policy terms.
+
+12. Preserve the source page number from the supplied policy term.
+
+13. Compare the damage part, action, and AI assessment with
+    the policy terms.
+
+14. Do not assume that "Replace" is automatically covered merely
+    because the damaged part is covered.
+
+15. Check whether the policy terms distinguish between repair
+    and replacement.
+
+16. Check deductibles and policy limits where supplied.
+
+17. Do not invent a deductible if none is supplied.
+
+18. Do not invent a policy limit if none is supplied.
+
+19. Do not calculate a final claim settlement purely from an AI
+    repair estimate unless the supplied policy terms provide
+    enough information to support the calculation.
+
+20. "coveredAmount" and "nonCoveredAmount" should represent
+    policy-analysis amounts only.
+
+21. If the actual payable amount cannot be reliably determined,
+    use 0 for the numeric amount and explain the reason in "reason".
+
+22. The Service Representative will make the final claim decision.
+
+23. The output must be useful for human review.
+
+24. Clearly identify missing information.
+
+25. Clearly identify policy conflicts.
+
+26. A claim-description mismatch is not by itself proof of fraud.
+
+27. Confidence must be between 0 and 1.
+
+28. Return only structured JSON.
+
+29. Do not return Markdown.
+
+30. Do not add explanations outside JSON.
+
+
+==================================================
+COVERAGE STATUS VALUES
+==================================================
+
+Use exactly one of:
+
+Covered
+Partially Covered
+Not Covered
+Requires Review
+
+
+==================================================
+DECISION IMPACT VALUES
+==================================================
+
+Use the supplied policy term's Decision Impact value when
+applicable.
+
+Possible values include:
+
+Include
+Exclude
+Limit
+Deduct
+Require Review
+Information Only
+
+
+==================================================
+FINANCIAL RULE
+==================================================
+
+Do not treat the policy limit as the repair cost.
+
+The policy limit represents the maximum amount payable under
+the relevant policy term.
+
+The AI estimated repair/replacement cost represents the
+estimated damage cost.
+
+Keep these concepts separate.
+
+If a final payable amount requires a deterministic business
+calculation that cannot be safely performed from the supplied
+information, do not invent it.
+
+==================================================
+OUTPUT
+==================================================
+
+Return:
+
+- claimSummary
+- coverageOverview
+- financialInsight
+- missingInformation
+- policyConflicts
+- humanReviewRequired
+- overallConfidence
+- damageLineInsights
+
+For every damage line return:
+
+- partName
+- action
+- coverageStatus
+- applicableClauseNumber
+- applicableClauseTitle
+- decisionImpact
+- coveredAmount
+- nonCoveredAmount
+- deductibleAmount
+- policyLimitAmount
+- reason
+- sourcePageNumber
+- confidence
+"""
+
+
+    # =========================================================
+    # GEMINI MODEL FALLBACK
+    # =========================================================
+
+    models = [
+        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
+    ]
+
+
+    response = None
+    last_error = None
+
+
+    # =========================================================
+    # TRY MODELS
+    # =========================================================
+
+    for model_name in models:
+
+        try:
+
+            print(
+                f"Trying Gemini decision model: {model_name}"
+            )
+
+            response = client.models.generate_content(
+
+                model=model_name,
+
+                contents=[
+                    prompt
+                ],
+
+                config=types.GenerateContentConfig(
+
+                    response_mime_type="application/json",
+
+                    response_schema=response_schema,
+
+                    max_output_tokens=4096
+                )
+            )
+
+            print(
+                f"Claim decision analysis succeeded with: "
+                f"{model_name}"
+            )
+
+            break
+
+
+        except Exception as ex:
+
+            last_error = ex
+
+            error_text = str(ex)
+
+            print(
+                f"Decision model {model_name} failed:"
+            )
+
+            print(error_text)
+
+
+            # =================================================
+            # QUOTA / RATE LIMIT
+            # =================================================
+
+            if (
+                "429" in error_text
+                or "RESOURCE_EXHAUSTED" in error_text
+                or "quota" in error_text.lower()
+            ):
+
+                print(
+                    f"Quota/rate limit on {model_name}. "
+                    f"Trying next model."
+                )
+
+                continue
+
+
+            # =================================================
+            # MODEL NOT FOUND
+            # =================================================
+
+            if (
+                "404" in error_text
+                or "NOT_FOUND" in error_text
+            ):
+
+                print(
+                    f"{model_name} unavailable. "
+                    f"Trying next model."
+                )
+
+                continue
+
+
+            # =================================================
+            # OTHER ERROR
+            # =================================================
+
+            print(
+                f"Unexpected Gemini decision error on "
+                f"{model_name}. Trying next model."
+            )
+
+            continue
+
+
+    # =========================================================
+    # NO MODEL WORKED
+    # =========================================================
+
+    if response is None:
+
+        raise (
+            last_error
+            or Exception(
+                "All Gemini decision models failed"
+            )
+        )
+
+
+    # =========================================================
+    # VALIDATE RESPONSE
+    # =========================================================
+
+    if not response.text:
+
+        raise ValueError(
+            "Gemini returned an empty decision response"
+        )
+
+
+    text = response.text.strip()
+
+
+    # =========================================================
+    # PARSE JSON
+    # =========================================================
+
+    try:
+
+        result = json.loads(text)
+
+    except json.JSONDecodeError as json_error:
+
+        print(
+            "Gemini returned invalid decision JSON:"
+        )
+
+        print(text)
+
+        print(
+            "JSON error:",
+            json_error
+        )
+
+        raise ValueError(
+            "Gemini returned invalid decision JSON"
+        )
+
+
+    # =========================================================
+    # BASIC VALIDATION
+    # =========================================================
+
+    damage_line_insights = result.get(
+        "damageLineInsights",
+        []
+    )
+
+
+    allowed_statuses = {
+        "Covered",
+        "Partially Covered",
+        "Not Covered",
+        "Requires Review"
+    }
+
+
+    for item in damage_line_insights:
+
+        coverage_status = item.get(
+            "coverageStatus"
+        )
+
+        if (
+            coverage_status
+            not in allowed_statuses
+        ):
+
+            raise ValueError(
+                "Invalid coverageStatus: "
+                + str(coverage_status)
+            )
+
+
+        confidence = float(
+            item.get(
+                "confidence",
+                0
+            )
+        )
+
+
+        if (
+            confidence < 0
+            or confidence > 1
+        ):
+
+            raise ValueError(
+                "Damage line confidence must be "
+                "between 0 and 1"
+            )
+
+
+    overall_confidence = float(
+        result.get(
+            "overallConfidence",
+            0
+        )
+    )
+
+
+    if (
+        overall_confidence < 0
+        or overall_confidence > 1
+    ):
+
+        raise ValueError(
+            "Overall confidence must be "
+            "between 0 and 1"
+        )
+
+
+    print(
+        "Claim decision JSON parsed successfully"
+    )
+
+    print(
+        "Decision damage lines:",
+        json.dumps(
+            damage_line_insights,
+            indent=2
+        )
+    )
+
+
+    return result
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -678,7 +1275,177 @@ def add_ai_watermark(image, claim, evidence_id, vehicle, gemini_result):
 # --------------------------------------------------
 # Detect Endpoint
 # --------------------------------------------------
+# --------------------------------------------------
+# Claim Decision Endpoint
+# --------------------------------------------------
 
+@app.route("/claim-decision", methods=["POST"])
+def claim_decision():
+
+    start = time.time()
+
+    try:
+
+        # =================================================
+        # READ REQUEST
+        # =================================================
+
+        data = request.get_json()
+
+
+        if not data:
+
+            return jsonify({
+                "success": False,
+                "message": "No JSON body received"
+            }), 400
+
+
+        # =================================================
+        # REQUIRED INPUTS
+        # =================================================
+
+        claim = data.get(
+            "claim",
+            {}
+        )
+
+        damage_lines = data.get(
+            "damageLines",
+            []
+        )
+
+        policy_terms = data.get(
+            "policyTerms",
+            []
+        )
+
+
+        if not claim:
+
+            return jsonify({
+                "success": False,
+                "message": "Claim information is required"
+            }), 400
+
+
+        if not damage_lines:
+
+            return jsonify({
+                "success": False,
+                "message": "damageLines are required"
+            }), 400
+
+
+        if not policy_terms:
+
+            return jsonify({
+                "success": False,
+                "message": "policyTerms are required"
+            }), 400
+
+
+        # =================================================
+        # LOG INPUT
+        # =================================================
+
+        print(
+            "Claim Decision Request"
+        )
+
+        print(
+            "Claim:",
+            json.dumps(
+                claim,
+                indent=2
+            )
+        )
+
+        print(
+            "Damage Lines Count:",
+            len(damage_lines)
+        )
+
+        print(
+            "Policy Terms Count:",
+            len(policy_terms)
+        )
+
+
+        # =================================================
+        # GEMINI DECISION ANALYSIS
+        # =================================================
+
+        decision_result = (
+            analyze_claim_decision_with_gemini(
+                claim,
+                damage_lines,
+                policy_terms
+            )
+        )
+
+
+        # =================================================
+        # SUCCESS
+        # =================================================
+
+        elapsed = round(
+            time.time() - start,
+            2
+        )
+
+
+        return jsonify({
+
+            "success": True,
+
+            "claimDecision": decision_result,
+
+            "damageLineCount":
+                len(damage_lines),
+
+            "policyTermCount":
+                len(policy_terms),
+
+            "elapsed":
+                elapsed
+
+        }), 200
+
+
+    # =====================================================
+    # ERROR
+    # =====================================================
+
+    except Exception as ex:
+
+        print(
+            "Claim decision analysis failed:"
+        )
+
+        print(
+            str(ex)
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+
+        return jsonify({
+
+            "success": False,
+
+            "message":
+                "Claim decision analysis failed",
+
+            "error":
+                str(ex),
+
+            "details":
+                traceback.format_exc()
+
+        }), 500
 @app.route("/detect", methods=["POST"])
 def detect():
     start = time.time()
